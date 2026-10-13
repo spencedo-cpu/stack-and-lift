@@ -1,0 +1,99 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Arrange project folders
+        run: |
+          set -e
+          P=proj
+          mkdir -p $P/app/src/main/java/app/stacklift $P/app/src/main/assets $P/app/src/main/res/drawable $P/app/src/main/res/mipmap-anydpi-v26 $P/app/src/main/res/values
+          pick() { find . -type f -name "$1" -not -path "./$P/*" -not -path "./.git/*" | head -n 1; }
+          cp "$(pick settings.gradle)" $P/settings.gradle
+          cp "$(pick gradle.properties)" $P/gradle.properties
+          cp "$(pick stacklift.keystore)" $P/app/stacklift.keystore
+          cp "$(pick AndroidManifest.xml)" $P/app/src/main/AndroidManifest.xml
+          cp "$(pick index.html)" $P/app/src/main/assets/index.html
+          for f in AlarmReceiver BootReceiver Bridge MainActivity Reminders; do
+            cp "$(pick $f.java)" $P/app/src/main/java/app/stacklift/$f.java
+          done
+          cp "$(pick ic_launcher_fg.xml)" $P/app/src/main/res/drawable/ic_launcher_fg.xml
+          cp "$(pick ic_notify.xml)" $P/app/src/main/res/drawable/ic_notify.xml
+          cp "$(pick ic_launcher.xml)" $P/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          cp "$(pick colors.xml)" $P/app/src/main/res/values/colors.xml
+          cp "$(pick strings.xml)" $P/app/src/main/res/values/strings.xml
+          cat > $P/build.gradle <<'EOF_ROOT'
+          plugins { id 'com.android.application' version '8.5.2' apply false }
+          EOF_ROOT
+          cat > $P/app/build.gradle <<'EOF_APP'
+          plugins { id 'com.android.application' }
+
+          android {
+              namespace 'app.stacklift'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId 'app.stacklift'
+                  minSdk 26
+                  targetSdk 34
+                  // Each GitHub build gets a higher version so updates install over the old one.
+                  versionCode Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+                  versionName "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
+              }
+
+              // Fixed signing key so every new build installs as an update and keeps your data.
+              signingConfigs {
+                  release {
+                      storeFile file('stacklift.keystore')
+                      storePassword 'stacklift'
+                      keyAlias 'stacklift'
+                      keyPassword 'stacklift'
+                  }
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      signingConfig signingConfigs.release
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF_APP
+          find $P -type f | sort
+
+      - name: Build signed APK
+        run: gradle :app:assembleRelease --no-daemon --stacktrace -p proj
+
+      - name: Rename APK
+        run: cp proj/app/build/outputs/apk/release/app-release.apk StackAndLift.apk
+
+      - name: Publish to Releases (download this on your phone)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Stack & Lift build ${{ github.run_number }}
+          files: StackAndLift.apk
+          make_latest: true
