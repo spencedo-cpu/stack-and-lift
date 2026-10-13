@@ -48,6 +48,9 @@ jobs:
           cat > $P/app/build.gradle <<'EOF_APP'
           plugins { id 'com.android.application' }
 
+          // Version = minutes since 1970, so every new build is always newer than any old one.
+          def vc = (int) (System.currentTimeMillis().intdiv(60000L))
+
           android {
               namespace 'app.stacklift'
               compileSdk 34
@@ -56,8 +59,7 @@ jobs:
                   applicationId 'app.stacklift'
                   minSdk 26
                   targetSdk 34
-                  // Each GitHub build gets a higher version so updates install over the old one.
-                  versionCode Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+                  versionCode vc
                   versionName "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
               }
 
