@@ -107,6 +107,12 @@ h3{font-family:var(--display);font-weight:600;font-size:19px;margin:0;letter-spa
 .dot{width:100%;max-width:34px;aspect-ratio:1;border-radius:7px;border:1px solid var(--line);background:var(--sunk);position:relative;overflow:hidden}
 .dot i{position:absolute;inset:auto 0 0 0;background:var(--good)}
 .dot.today{outline:2px solid var(--accent);outline-offset:1px}
+.wfill,.dot i.wdot{background:var(--accent)}
+.wcard{display:grid;gap:12px}
+.wtop{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.wbig{font-size:34px;font-family:var(--display);font-weight:700;line-height:1}
+.wbtns .btn{flex:1;min-height:48px;font-size:16px}
+.act-line{grid-template-columns:minmax(0,1fr) auto auto auto}
 
 /* Training */
 .next{display:flex;flex-direction:column;gap:12px}
@@ -781,11 +787,80 @@ function chirp(force){
 }
 document.addEventListener('pointerdown',()=>{if(S.session||rest)ensureAudio();},{passive:true});
 
+/* ---------- water (added): stored on each day's checklist log as water:[{ml,t}] ---------- */
+const OZ=29.5735;
+const waterCfg=()=>{const w=S.supps.water||{};return {goalMl:num(w.goalMl)||Math.round(100*OZ),unit:w.unit==='ml'?'ml':'oz'};};
+const wShow=(ml,u)=>u==='ml'?String(Math.round(ml)):fmtW(Math.round(ml/OZ*10)/10);
+const waterMl=k=>(dayLog(k).water||[]).reduce((a,x)=>a+num(x.ml),0);
+function addWater(k,ml){
+  if(k>todayKey()||!(ml>0)) return;
+  const log=clone(dayLog(k)); log.date=k; log.taken=log.taken||{};
+  log.water=(log.water||[]).concat({ml:Math.round(ml),t:k===todayKey()?new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):''});
+  S.logs[k]=log; render(); write('supplog/'+k,log);
+}
+function undoWater(k){const log=clone(dayLog(k));if(!(log.water||[]).length)return;log.water=log.water.slice(0,-1);S.logs[k]=log;render();write('supplog/'+k,log);}
+function renderWaterToday(k){
+  const c=waterCfg(), u=c.unit, ml=waterMl(k), fut=k>todayKey(), pct=Math.min(100,100*ml/c.goalMl), ents=dayLog(k).water||[];
+  const steps=u==='ml'?[250,500,750]:[8,16,24];
+  let h='<section class="section" aria-labelledby="h-water"><div class="sec-head"><h2 id="h-water">Water</h2><div class="meter" style="flex:1;max-width:260px"><div class="meter-track"><div class="meter-fill wfill" style="width:'+pct+'%"></div></div><span class="num" style="font-weight:600">'+wShow(ml,u)+'/'+wShow(c.goalMl,u)+' '+u+'</span></div></div>';
+  h+='<div class="card pad wcard"><div class="wtop"><div><b class="num wbig">'+wShow(ml,u)+'</b> <span class="muted">of '+wShow(c.goalMl,u)+' '+u+'</span></div><span class="chip '+(ml>=c.goalMl?'up':'build')+'">'+(ml>=c.goalMl?'Goal met':wShow(c.goalMl-ml,u)+' '+u+' to go')+'</span></div>';
+  if(fut) h+='<div class="muted" style="font-size:13px">Preview. You can log water on the day.</div>';
+  else{
+    h+='<div class="row wbtns">'+steps.map(s=>'<button class="btn" data-act="water-add" data-ml="'+(u==='ml'?s:Math.round(s*OZ))+'">+'+s+' '+u+'</button>').join('')+'</div>';
+    h+='<div class="row"><input class="inp n" id="water-custom" inputmode="decimal" placeholder="Other amount" aria-label="Other amount in '+u+'" style="width:140px"><button class="btn sm" data-act="water-custom">Add '+u+'</button>'+(ents.length?'<button class="btn sm ghost" data-act="water-undo">Undo last ('+wShow(ents[ents.length-1].ml,u)+' '+u+(ents[ents.length-1].t?' at '+esc(ents[ents.length-1].t):'')+')</button>':'')+'</div>';
+  }
+  h+='<div class="week" aria-label="Water, last 7 days">';
+  for(let i=6;i>=0;i--){const d=addDays(k,-i), f=Math.min(1,waterMl(d)/c.goalMl);
+    h+='<div><span class="dot'+(d===todayKey()?' today':'')+'" title="'+esc(fmtShort(d))+': '+wShow(waterMl(d),u)+' '+u+'"><i class="wdot" style="height:'+(f*100)+'%"></i></span>'+esc(parseKey(d).toLocaleDateString(undefined,{weekday:'narrow'}))+'</div>';}
+  return h+'</div></div></section>';
+}
+function waterSetupHtml(){
+  const c=waterCfg();
+  return '<section class="section"><div class="sec-head"><h2>Water</h2></div><div class="card pad" style="display:grid;gap:10px"><div class="row" style="flex-wrap:wrap;gap:12px"><div class="f"><label for="wgoal">Daily goal ('+c.unit+')</label><input class="inp n" id="wgoal" data-wset="goal" inputmode="decimal" value="'+wShow(c.goalMl,c.unit)+'" style="width:120px"></div><div class="f"><label for="wunit">Units</label><select class="inp" id="wunit" data-wset="unit" style="width:auto"><option value="oz"'+(c.unit==='oz'?' selected':'')+'>Ounces (oz)</option><option value="ml"'+(c.unit==='ml'?' selected':'')+'>Milliliters (mL)</option></select></div></div><p class="muted" style="margin:0;font-size:13px">Start at about 100 oz (3 L) a day and adjust for heat and training. You take a water pill (HCTZ), so ask your prescriber if you\'re unsure what target is right for you.</p></div></section>';
+}
+/* ---------- activity log (added): saved like a workout, dayId 'activity' ---------- */
+const ACTS=['Walk','Brisk walk','Incline walk','Hike','Run','Outdoor bike','Stationary bike','Rowing','Elliptical','Swim','Yard work','House chores','Basketball','Pickleball','Tennis','Golf (walking)','Yoga','Stretching / mobility'];
+const EFFORT={easy:'Easy · Zone 2',mod:'Moderate · Zone 3',hard:'Hard'};
+function renderActivity(k){
+  if(k>todayKey()) return '';
+  const acts=S.workouts.filter(w=>w.date===k&&w.dayId==='activity');
+  let h='<section class="section" aria-labelledby="h-act"><div class="sec-head"><h2 id="h-act">Activity</h2>'+(S.actOpen?'':'<button class="btn" data-act="act-open">+ Log activity</button>')+'</div>';
+  if(S.actOpen){
+    const cards=dueOn(k).filter(s=>s.kind==='cardio'&&!(dayLog(k).taken||{})[s.id]), hr=new Date().getHours();
+    const guess=k!==todayKey()?'':(cards.find(s=>hr<12&&slotOf(s)==='Wake')||cards.find(s=>hr>=17&&slotOf(s)==='Night')||{}).id||'';
+    h+='<div class="card pad" style="display:grid;gap:10px"><div class="row" style="flex-wrap:wrap;gap:10px;align-items:flex-end">'
+      +'<div class="f" style="flex:1;min-width:170px"><label for="act-name">Activity</label><input class="inp" id="act-name" list="act-list" placeholder="e.g. Brisk walk" autocomplete="off" style="font-family:var(--body)"><datalist id="act-list">'+ACTS.map(a=>'<option value="'+esc(a)+'"></option>').join('')+'</datalist></div>'
+      +'<div class="f"><label for="act-min">Minutes</label><input class="inp n" id="act-min" inputmode="numeric" value="30" style="width:84px"></div>'
+      +'<div class="f"><label for="act-eff">Effort</label><select class="inp" id="act-eff" style="width:auto">'+Object.keys(EFFORT).map(e=>'<option value="'+e+'">'+EFFORT[e]+'</option>').join('')+'</select></div></div>'
+      +'<div class="f"><label for="act-note">Note (optional)</label><input class="inp" id="act-note" placeholder="Route, distance, how it felt" style="font-family:var(--body)"></div>'
+      +(cards.length?'<div class="f"><label for="act-check">Also check off</label><select class="inp" id="act-check" style="width:auto"><option value="">Nothing</option>'+cards.map(s=>'<option value="'+esc(s.id)+'"'+(s.id===guess?' selected':'')+'>'+esc(s.name)+'</option>').join('')+'</select></div>':'')
+      +'<div class="row"><button class="btn primary" data-act="act-save">Save activity</button><button class="btn ghost" data-act="act-cancel">Cancel</button></div></div>';
+  }
+  if(acts.length){h+='<div class="card">';
+    for(const w of acts){const e=(w.entries||[])[0]||{};
+      h+='<div class="summary-line act-line"><div style="font-weight:600;min-width:0">'+esc(w.dayName)+(e.note?'<div class="muted" style="font-size:12px;font-weight:400">'+esc(e.note)+'</div>':'')+'</div><span class="chip top">'+esc(EFFORT[e.effort]||'Activity')+'</span><div class="s">'+esc((w.minutes||0)+' min')+'</div><div class="s" style="text-align:right">'
+        +(S.confirm==='actdel:'+w.id?'<button class="btn sm danger" data-act="act-del-yes" data-id="'+esc(w.id)+'">Delete</button><button class="btn sm" data-act="cancel-confirm">Keep</button>':'<button class="btn sm ghost" data-act="act-del" data-id="'+esc(w.id)+'" aria-label="Delete '+esc(w.dayName)+'">Delete</button>')+'</div></div>';}
+    h+='</div>';}
+  else if(!S.actOpen) h+='<p class="muted" style="margin:0;font-size:13px">Walks, bike rides, sports or yard work. Logged here without starting a workout.</p>';
+  return h+'</section>';
+}
+function saveActivity(){
+  const k=S.date; if(k>todayKey()) return;
+  const name=(($('#act-name')||{}).value||'').trim(), min=Math.round(num(($('#act-min')||{}).value));
+  if(!name){const el=$('#act-name');if(el)el.focus();return;}
+  if(!(min>0)){const el=$('#act-min');if(el)el.focus();return;}
+  const eff=($('#act-eff')||{}).value||'easy', note=(($('#act-note')||{}).value||'').trim(), chk=($('#act-check')||{}).value||'';
+  const doc={id:uid(),date:k,dayId:'activity',dayName:name,unit:S.program.unit,entries:[{exId:'activity-'+slugify(name),name,cardio:true,activity:true,effort:eff,note,sets:[{w:0,r:min}],result:'cardio'}],minutes:min,createdAt:Date.now()};
+  S.workouts=[doc,...S.workouts].sort(sortW); S.actOpen=false;
+  if(chk){const log=clone(dayLog(k));log.date=k;log.taken=log.taken||{};if(!log.taken[chk]){log.taken[chk]=k===todayKey()?new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'✓';S.logs[k]=log;write('supplog/'+k,log);}}
+  render(); write('workouts/'+doc.id,doc);
+}
+
 function startHero(k){
   if(k!==todayKey()||!S.loaded||!S.loaded.program) return '';
   const b=(attrs,top,sub)=>'<button class="btn primary big" '+attrs+'><span class="big-t">'+top+'</span><small>'+esc(sub)+'</small></button>';
   if(S.session&&S.session.date===k) return b('data-act="goto-train"','Resume workout',sessionTitle(S.session));
-  if(S.workouts.some(w=>w.date===k)) return '';
+  if(S.workouts.some(w=>w.date===k&&w.dayId!=='activity')) return '';
   if(isPer()){const n=perWeekNum(k),dow=parseKey(k).getDay();const d=(S.program.startDate&&n>=1)?perDay(n,dow):null;if(!d)return '';
     return b('data-act="start-per" data-wk="'+n+'" data-dow="'+dow+'"','Start workout',DOW[dow]+' · '+d.name+' · '+d.items.length+(d.items.length===1?' exercise':' exercises'));}
   if(!S.program.days.length) return '';
@@ -999,7 +1074,7 @@ function renderToday(){
   const fut=k>todayKey(), title=isToday?'Today':k===addDays(todayKey(),1)?'Tomorrow':k===addDays(todayKey(),-1)?'Yesterday':fmtLong(k);
   h+='<div class="datenav"><button class="iconbtn" data-act="day" data-n="-1" aria-label="Previous day">‹</button><div style="text-align:center;min-width:0"><div class="d">'+esc(title)+'</div><div class="sub">'+esc(parseKey(k).toLocaleDateString(undefined,{weekday:'short',month:'long',day:'numeric',year:'numeric'}))+'</div><div class="sub" style="display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:4px"><label class="jump"><span>Go to date</span><input type="date" id="jumpdate" value="'+esc(k)+'" aria-label="Go to date"></label>'+(isToday?'':'<button class="btn ghost sm" data-act="today" style="padding:2px 6px">Back to today</button>')+'</div></div><button class="iconbtn" data-act="day" data-n="1" aria-label="Next day">›</button></div>';
   if(fut) h+='<div class="notice preview"><span><b>Preview.</b> This is what\'s planned for '+esc(parseKey(k).toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'}))+'. You can check items off and start the workout on the day.</span></div>';
-  h+=startHero(k)+renderSuppToday(k)+renderTrainToday(k);
+  h+=startHero(k)+renderSuppToday(k)+renderWaterToday(k)+renderTrainToday(k)+renderActivity(k);
   return h;
 }
 
@@ -1041,7 +1116,7 @@ function renderTrainToday(k){
   if(!S.loaded.program) return h+'<div class="card"><div class="skel"></div><div class="skel" style="width:60%"></div></div></section>';
   if(S.session&&S.session.date===k) return h+renderSession()+'</section>';
   if(S.session&&S.session.date<k&&k===todayKey()) h+='<div class="notice"><span>You have an unsaved workout from <b>'+esc(parseKey(S.session.date).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}))+'</b> ('+esc(sessionTitle(S.session))+'). Open it to save or discard. Starting today\'s workout saves any sets you logged there.</span><button class="btn sm" data-act="open-stale">Open it</button></div>';
-  const done=S.workouts.filter(w=>w.date===k);
+  const done=S.workouts.filter(w=>w.date===k&&w.dayId!=='activity');
   for(const w of done) h+=renderWorkoutSummary(w);
   if(isPer()) return h+renderPerToday(k,done)+'</section>';
   if(!S.program.days.length) return h+'<div class="card empty"><b>No training program yet</b><span>Set up your training days and lifts with sets, rep range, and starting weight. The app raises the weight when you hit the top of the range.</span><button class="btn primary" data-goto="setup">Build program</button></div></section>';
@@ -1180,7 +1255,7 @@ function renderProgress(){
       h+='<div class="hist-item"><div class="sec-head"><div><b>'+esc(w.dayName)+'</b> <span class="muted">· '+esc(parseKey(w.date).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}))+'</span></div>';
       if(S.confirm==='del:'+w.id) h+='<div class="confirm"><span>Delete this workout?</span><button class="btn sm danger" data-act="delw-yes" data-id="'+esc(w.id)+'">Delete</button><button class="btn sm" data-act="cancel-confirm">Keep</button></div>';
       else h+='<button class="btn sm ghost" data-act="delw" data-id="'+esc(w.id)+'">Delete</button>';
-      h+='</div><div class="muted" style="font-size:13px">'+esc((w.entries||[]).map(e=>e.cardio?'Zone 2 '+e.sets[0].r+' min':e.name+' '+fmtW(Math.max(...e.sets.map(s=>s.w)))+'×'+e.sets.map(s=>s.r).join('/')).join(' · '))+'</div></div>';}
+      h+='</div><div class="muted" style="font-size:13px">'+esc((w.entries||[]).map(e=>e.cardio?(e.activity?e.name:'Zone 2')+' '+e.sets[0].r+' min':e.name+' '+fmtW(Math.max(...e.sets.map(s=>s.w)))+'×'+e.sets.map(s=>s.r).join('/')).join(' · '))+'</div></div>';}
     h+='</div><p class="muted" style="font-size:13px;margin:0">Deleting a workout removes it from history; it doesn’t change your current working weights. Adjust those in Setup.</p>';}
   return h+'</section>';
 }
@@ -1208,7 +1283,7 @@ function chart(pts,unit){
 }
 
 /* ---------- setup ---------- */
-function renderSetup(){return renderSetupMain()+backupHtml();}
+function renderSetup(){return renderSetupMain()+waterSetupHtml()+backupHtml();}
 function renderSetupMain(){
   const P=S.program, unit=P.unit;
   let h='<div class="row" style="justify-content:flex-end;margin-top:14px"><span class="saved" id="saved"></span></div>';
@@ -1301,6 +1376,14 @@ document.addEventListener('click',e=>{
     case 'pw-step': {const o=parseOpen();if(!o)break;const pl=getPlan(o.key,false);const ctx={mode:'per',week:o.n,dow:o.dow,swaps:pl.swaps};const pi=(sessionItems(ctx)||[]).find(x=>x.id===id)||{};const cur=(pl.w[id]!=null&&pl.w[id]!=='')?num(pl.w[id]):(pi.swappedFrom?0:num(pi.weight)||num(pi.assist)||0);setPlanW(id,Math.max(0,cur+num(t.dataset.d)));break;}
     case 'pw-target': {const o=parseOpen();if(!o)break;const pl=getPlan(o.key,false);const pi=(sessionItems({mode:'per',week:o.n,dow:o.dow,swaps:pl.swaps})||[]).find(x=>x.id===id);if(pi)setPlanW(id,num(pi.weight));break;}
     case 'pw-clear': setPlanW(id,null);break;
+    case 'water-add': addWater(S.date,num(t.dataset.ml));break;
+    case 'water-custom': {const el=$('#water-custom');const v=num(el&&el.value);if(!(v>0)){if(el)el.focus();break;}addWater(S.date,waterCfg().unit==='ml'?v:v*OZ);break;}
+    case 'water-undo': undoWater(S.date);break;
+    case 'act-open': S.actOpen=true;render();{const el=$('#act-name');if(el)el.focus();}break;
+    case 'act-cancel': S.actOpen=false;render();break;
+    case 'act-save': saveActivity();break;
+    case 'act-del': S.confirm='actdel:'+id;render();break;
+    case 'act-del-yes': S.workouts=S.workouts.filter(w=>w.id!==id);S.confirm=null;render();remove('workouts/'+id);break;
     case 'tech-open': S.techFor=(S.techFor===id?null:id);render();break;
     case 'chirp-toggle': {const on=!chirpOn();lsSet('sl.chirp',on);if(on){ensureAudio();chirp(true);}drawRest();break;}
     case 'swap-open': S.swapFor=(S.swapFor===id?null:id);render();break;
@@ -1332,7 +1415,7 @@ document.addEventListener('click',e=>{
     case 'rm-ex': for(const d of S.program.days)d.exercises=d.exercises.filter(x=>x.id!==id);saveProgram();render();break;
   }
 });
-document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.classList&&e.target.classList.contains('tap')){e.preventDefault();e.target.click();return;}if(e.key==='Enter'&&e.target.dataset&&e.target.dataset.pw){e.preventDefault();e.target.blur();return;}if(e.key==='Enter'&&e.target.id==='swap-name'){e.preventDefault();const b=document.querySelector('[data-act="swap-custom"],[data-act="plan-swap-custom"]');if(b)b.click();return;}if(e.key==='Enter'&&(e.target.id==='add-ex-name'||e.target.id==='add-ex-sets')){e.preventDefault();const b=document.querySelector('[data-act="add-extra"]');if(b)b.click();}});
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='water-custom'){e.preventDefault();const b=document.querySelector('[data-act="water-custom"]');if(b)b.click();return;}if(e.key==='Enter'&&/^act-(name|min|note)$/.test(e.target.id||'')){e.preventDefault();const b=document.querySelector('[data-act="act-save"]');if(b)b.click();return;}if((e.key==='Enter'||e.key===' ')&&e.target.classList&&e.target.classList.contains('tap')){e.preventDefault();e.target.click();return;}if(e.key==='Enter'&&e.target.dataset&&e.target.dataset.pw){e.preventDefault();e.target.blur();return;}if(e.key==='Enter'&&e.target.id==='swap-name'){e.preventDefault();const b=document.querySelector('[data-act="swap-custom"],[data-act="plan-swap-custom"]');if(b)b.click();return;}if(e.key==='Enter'&&(e.target.id==='add-ex-name'||e.target.id==='add-ex-sets')){e.preventDefault();const b=document.querySelector('[data-act="add-extra"]');if(b)b.click();}});
 document.addEventListener('input',e=>{
   const t=e.target;
   if(t.id==='io-in'){S.ioIn=t.value;return;}
@@ -1346,6 +1429,7 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',e=>{
   const t=e.target;
+  if(t.dataset.wset){const c=waterCfg(),w=Object.assign({},S.supps.water||{});if(t.dataset.wset==='unit'){w.unit=t.value==='ml'?'ml':'oz';w.goalMl=c.goalMl;}else{const v=num(t.value);if(v>0)w.goalMl=Math.round(c.unit==='ml'?v:v*OZ);w.unit=c.unit;}S.supps.water=w;saveSupps();render();return;}
   if(t.dataset.pw){const v=String(t.value).trim();setPlanW(t.dataset.pw,v===''?null:num(v));return;}
   if(t.id==='pickday'){S.pickDay=t.value;S.openEx=null;render();return;}
   if(t.id==='jumpdate'){if(/^\d{4}-\d{2}-\d{2}$/.test(t.value)){S.date=t.value;S.pickDay=null;render();}return;}
