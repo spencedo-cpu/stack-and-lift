@@ -866,7 +866,7 @@ function saveActivity(){
 }
 
 /* ---------- build stamp, training-day link, body log, backups, updates (added) ---------- */
-const APP_BUILD='2026-10-15';
+const APP_BUILD='2026-10-16.2';
 function isTrainingDay(k){if(!isPer()||!S.program.startDate)return null;const ek=effKey(k),n=perWeekNum(ek);if(n<1||n>perWeeks().length)return null;return !!perDay(n,parseKey(ek).getDay());}
 function peakChip(s,k){if(s.kind!=='cardio'||slotOf(s)!=='Night'||!isPer()||!S.program.startDate)return '';const n=perWeekNum(effKey(k)),t=perWeeks().length;return (n>=9&&n<=t)?'<span class="chip hold">Peaking weeks: easy Zone 2 walk only</span>':'';}
 /* body: stored on each day's checklist log as bp:[{sys,dia,pulse,t}] and weight */
@@ -1560,8 +1560,11 @@ document.addEventListener('input',e=>{
 document.addEventListener('change',e=>{
   const t=e.target;
   if(t.id==='updfile'||t.id==='bkfile'){const f=t.files&&t.files[0];if(!f)return;const isUpd=t.id==='updfile';t.value='';
-    f.text().then(txt=>{if(isUpd){if(!/window\.SL_SEED/.test(txt)||!/Stack (&amp;|&) Lift/.test(txt)||txt.length<50000){S.updMsg='That file isn\'t a Stack & Lift app file. Pick the index.html I sent you.';render();return;}
-      let r='';try{r=BRIDGE.installUpdate(txt);}catch(e){r=String(e&&e.message||e);}S.updMsg=r==='ok'?'Update loaded. Restarting the app…':'Couldn\'t load the update: '+r;render();}
+    if(isUpd){S.updMsg='Checking '+(f.name||'file')+' ('+Math.round((f.size||0)/1024)+' KB)…';render();}
+    f.text().then(txt=>{if(isUpd){if(!/window\.SL_SEED/.test(txt)||!/Stack (&amp;|&) Lift/.test(txt)||txt.length<50000){S.updMsg='That file ('+(f.name||'')+') isn\'t a Stack & Lift app file. Pick the newest index.html I sent you.';render();return;}
+      const fv=(txt.match(/const APP_BUILD='([^']+)'/)||[])[1]||'unknown';
+      if(fv===APP_BUILD){S.updMsg='That file ('+(f.name||'')+') is version '+fv+', the same version you\'re already running. Your phone may have saved the newest download under another name, like index (2).html. Pick the most recent one.';render();return;}
+      let r='';try{r=BRIDGE.installUpdate(txt);}catch(e){r=String(e&&e.message||e);}S.updMsg=r==='ok'?'Version '+fv+' installed. Restarting the app…':'Couldn\'t load the update: '+r;render();}
       else{S.tab='setup';S.io='import';S.ioIn=txt;S.confirm='import';S.ioMsg='Backup file loaded. Confirm to replace the data on this device.';render();}}).catch(()=>{S.updMsg='Couldn\'t read that file.';render();});return;}
   if(t.dataset.wset){const c=waterCfg(),w=Object.assign({},S.supps.water||{});if(t.dataset.wset==='unit'){w.unit=t.value==='ml'?'ml':'oz';w.goalMl=c.goalMl;}else{const v=num(t.value);if(v>0)w.goalMl=Math.round(c.unit==='ml'?v:v*OZ);w.unit=c.unit;}S.supps.water=w;saveSupps();render();return;}
   if(t.dataset.pw){const v=String(t.value).trim();setPlanW(t.dataset.pw,v===''?null:num(v));return;}
