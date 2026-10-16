@@ -967,7 +967,7 @@ function startHero(k){
   if(S.session&&S.session.date===k) return b('data-act="goto-train"','Resume workout',sessionTitle(S.session));
   if(S.workouts.some(w=>w.date===k&&w.dayId!=='activity')) return '';
   if(isPer()){const ek=effKey(k),n=perWeekNum(ek),dow=parseKey(ek).getDay();const d=(S.program.startDate&&n>=1)?perDay(n,dow):null;if(!d)return '';
-    return b('data-act="start-per" data-wk="'+n+'" data-dow="'+dow+'"','Start workout',DOW[dow]+' · '+d.name+' · '+d.items.length+(d.items.length===1?' exercise':' exercises'));}
+    return b('data-act="start-per" data-wk="'+n+'" data-dow="'+dow+'"','Start workout',DOW[parseKey(k).getDay()]+' · '+d.name+' · '+d.items.length+(d.items.length===1?' exercise':' exercises'));}
   if(!S.program.days.length) return '';
   const nd=S.program.days.find(d=>d.id===S.pickDay)||nextDay(); if(!nd||!nd.exercises.length) return '';
   return b('data-act="start" data-id="'+esc(nd.id)+'"','Start workout',nd.name+' · '+nd.exercises.length+(nd.exercises.length===1?' exercise':' exercises'));
@@ -980,6 +980,10 @@ const isPer=()=>S.program.mode==='periodized';
 const perWeeks=()=>Array.isArray(S.program.weeks)?S.program.weeks:[];
 const perWeek=n=>perWeeks().find(w=>w.week===n)||null;
 function effKey(k){let n=0;for(const s of (S.program.shifts||[]))if(s&&k>=s.from)n+=num(s.days);return n?addDays(k,-n):k;}
+/* the real calendar date a planned session lands on, after any shifts (added) */
+function realKeyOf(n,pdow){const st=S.program.startDate;if(!st)return null;const p=addDays(st,(n-1)*7+((pdow-parseKey(st).getDay()+7)%7));let hit=null;for(let i=0;i<60;i++){const k=addDays(p,i),e=effKey(k);if(e===p)hit=k;else if(e>p)break;}return hit;}
+function realDowLabel(n,pdow){const k=realKeyOf(n,pdow);return k?DOW[parseKey(k).getDay()]:DOW[pdow];}
+function movedNote(n,pdow){const k=realKeyOf(n,pdow);return k&&parseKey(k).getDay()!==pdow?' · moved from '+DOW[pdow]:'';}
 function perWeekNum(k){const st=S.program.startDate;if(!st)return 0;const d=Math.round((parseKey(k)-parseKey(st))/864e5);return Math.floor(d/7)+1;}
 function perDay(n,dow){const w=perWeek(n);return w?(w.days.find(d=>d.dow===dow)||null):null;}
 function repTop(r){const m=String(r||'').match(/\d+/g);return m?+m[m.length-1]:0;}
@@ -1250,13 +1254,14 @@ function renderPerToday(k,done){
     if(sh) h+='<div class="notice"><span>Plan pushed back '+sh.days+' day'+(sh.days>1?'s':'')+' starting today. Every later session moves with it.</span><button class="btn sm ghost" data-act="shift-undo">Undo</button></div>';
     else{const yk=addDays(k,-1),ye=effKey(yk),yn=perWeekNum(ye),yd=(yn>=1&&yn<=total)?perDay(yn,parseKey(ye).getDay()):null;
       const doneY=S.workouts.some(x=>x.date===yk&&x.dayId!=='activity'),doneT=S.workouts.some(x=>x.date===k&&x.dayId!=='activity');
-      if(yd&&!doneY&&!doneT&&!S.session) h+='<div class="notice"><span>Missed '+DOW[yd.dow]+' · '+esc(yd.name)+' yesterday? Do it today and push the rest of the plan back a day.</span><button class="btn sm" data-act="shift-plan">Shift plan</button></div>';}}
+      if(yd&&!doneY&&!doneT&&!S.session) h+='<div class="notice"><span>Missed '+DOW[parseKey(yk).getDay()]+' · '+esc(yd.name)+' yesterday? Do it today and push the rest of the plan back a day.</span><button class="btn sm" data-act="shift-plan">Shift plan</button></div>';}}
   const pick=(S.pickDay!=null&&w.days.some(d=>String(d.dow)===String(S.pickDay)))?+S.pickDay:null;
   let d=w.days.find(x=>x.dow===(pick!=null?pick:dow))||null;
   const rest=!d;
   if(!d&&dow!==0) d=w.days.find(x=>x.dow>dow)||null;
-  h+='<div class="card"><div class="pad next"><div class="sec-head"><div><div class="label">Week '+n+' of '+total+' · '+esc(w.phase)+(rest?' · rest day':'')+'</div><h3 style="font-size:26px">'+(d?(rest?'Next: ':'')+esc(DOW[d.dow]+' · '+d.name):'Rest day')+'</h3></div>';
-  h+='<select class="inp" id="pickday" style="width:auto;font-family:var(--body);font-size:14px" aria-label="Choose session">'+w.days.map(x=>'<option value="'+x.dow+'"'+(d&&x.dow===d.dow?' selected':'')+'>'+DOW[x.dow]+' · '+esc(x.name)+'</option>').join('')+'</select></div>';
+  const own=!!d&&!rest&&d.dow===dow, dLabel=d?(own?DOW[parseKey(k).getDay()]:realDowLabel(n,d.dow)):'', dMoved=d?(own?(parseKey(k).getDay()!==d.dow?' · moved from '+DOW[d.dow]:''):movedNote(n,d.dow)):'';
+  h+='<div class="card"><div class="pad next"><div class="sec-head"><div><div class="label">Week '+n+' of '+total+' · '+esc(w.phase)+(rest?' · rest day':'')+(d?esc(dMoved):'')+'</div><h3 style="font-size:26px">'+(d?(rest?'Next: ':'')+esc(dLabel+' · '+d.name):'Rest day')+'</h3></div>';
+  h+='<select class="inp" id="pickday" style="width:auto;font-family:var(--body);font-size:14px" aria-label="Choose session">'+w.days.map(x=>'<option value="'+x.dow+'"'+(d&&x.dow===d.dow?' selected':'')+'>'+realDowLabel(n,x.dow)+' · '+esc(x.name)+'</option>').join('')+'</select></div>';
   if(!d) return h+'<div class="muted">No more sessions this week. Week '+(n+1)+' starts tomorrow.</div>'+(k>todayKey()?'':'<div><button class="btn" data-act="start-free">Start an empty session</button></div>')+'</div></div>';
   h+='<div class="ex-list">';
   const pctx=planCtx(k,n,d.dow), ppl=getPlan(pctx.key,false), pitems=sessionItems(pctx)||[];
@@ -1269,7 +1274,7 @@ function renderPerToday(k,done){
   if(k>todayKey()){const sd=rest?null:d;h+='</div><div class="muted" style="font-size:13px">Preview only. '+(rest?'Rest day. ':'')+'Start this session on '+esc(parseKey(rest?addDays(k,d.dow-dow):k).toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'}))+'.</div></div></div>';return h;}
   const didIt=(done||[]).some(x=>x.dayId==='w'+n+'-'+d.dow);
   if(didIt) h+='</div><div class="row"><span class="chip up">✓ Done today</span><button class="btn ghost" data-act="start-per" data-wk="'+n+'" data-dow="'+d.dow+'">Log it again</button><button class="btn ghost" data-act="start-free">Empty session</button></div></div></div>';
-  else h+='</div><div class="row"><button class="btn primary big" data-act="start-per" data-wk="'+n+'" data-dow="'+d.dow+'">Start '+esc(DOW[d.dow])+' session</button><button class="btn ghost" data-act="start-free">Empty session</button></div></div></div>';
+  else h+='</div><div class="row"><button class="btn primary big" data-act="start-per" data-wk="'+n+'" data-dow="'+d.dow+'">Start '+esc(dLabel)+' session</button><button class="btn ghost" data-act="start-free">Empty session</button></div></div></div>';
   return h;
 }
 
@@ -1425,7 +1430,7 @@ function renderSetupMain(){
     h+='<div class="card pad row" style="gap:14px;align-items:flex-end"><div class="f" style="flex:1;min-width:180px"><label for="pname">Program name</label><input class="inp" id="pname" data-pf="name" value="'+esc(P.name)+'"></div><div class="f"><label for="pstart">Week 1 starts</label><input class="inp n" type="date" id="pstart" data-pf="startDate" value="'+esc(P.startDate||'')+'">'+((P.shifts||[]).length?'<div class="muted" style="font-size:12px;margin-top:4px">'+(P.shifts||[]).map(s=>'Pushed back '+s.days+' day from '+esc(fmtShort(s.from))+' <button class="btn sm ghost" data-act="shift-rm" data-id="'+esc(s.from)+'" style="padding:0 4px">Remove</button>').join('<br>')+'</div>':'')+'</div><div class="f"><label for="setupweek">Show week</label><select class="inp" id="setupweek">'+perWeeks().map(x=>'<option value="'+x.week+'"'+(x.week===wk?' selected':'')+'>Week '+x.week+' · '+esc(x.phase)+(x.week===cur?' (this week)':'')+'</option>').join('')+'</select></div></div>';
     h+='<p class="muted" style="margin:0;font-size:13px">This plan sets the weights for every week, so the app doesn’t adjust them on its own. Changing the start date shifts every week.</p>';
     if(w) for(const d of w.days){
-      h+='<div class="card"><div class="day-head"><span class="label">'+DOW[d.dow]+'</span><h3>'+esc(d.name)+'</h3></div><div class="tbl-wrap"><table><thead><tr><th>Exercise</th><th>Target</th><th>Notes</th></tr></thead><tbody>'
+      h+='<div class="card"><div class="day-head"><span class="label">'+realDowLabel(w.week,d.dow)+esc(movedNote(w.week,d.dow))+'</span><h3>'+esc(d.name)+'</h3></div><div class="tbl-wrap"><table><thead><tr><th>Exercise</th><th>Target</th><th>Notes</th></tr></thead><tbody>'
         +d.items.map(it=>'<tr><td>'+esc(it.name)+'</td><td class="m">'+esc(perTarget(it,unit))+'</td><td style="white-space:normal;min-width:220px">'+esc(it.notes||'')+'</td></tr>').join('')+'</tbody></table></div></div>';}
     return h+'</section>';
   }
